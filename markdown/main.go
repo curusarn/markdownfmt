@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"go/format"
 	"io/ioutil"
+	"strconv"
 	"strings"
 
 	"github.com/mattn/go-runewidth"
@@ -19,6 +20,8 @@ type markdownRenderer struct {
 	paragraph          map[int]bool // Used to keep track of whether a given list item uses a paragraph for large spacing.
 	listDepth          int
 	lastNormalText     string
+	references         map[string]int
+	referencesSlice    [][]byte
 
 	// TODO: Clean these up.
 	headers      []string
@@ -279,32 +282,36 @@ func (*markdownRenderer) Emphasis(out *bytes.Buffer, text []byte) {
 	out.Write(text)
 	out.WriteByte('*')
 }
-func (*markdownRenderer) Image(out *bytes.Buffer, link, title, alt []byte) {
+func (mr *markdownRenderer) Image(out *bytes.Buffer, link, title, alt []byte) {
 	out.WriteString("![")
 	out.Write(alt)
-	out.WriteString("](")
-	out.Write(escape(link))
-	if len(title) != 0 {
-		out.WriteString(` "`)
-		out.Write(title)
-		out.WriteString(`"`)
-	}
-	out.WriteString(")")
+	out.WriteString("][")
+	ref := mr.addReference(link)
+	out.WriteString(ref)
+	// TODO(slet): are there titles in reference-style links?
+	// if len(title) != 0 {
+	// 	out.WriteString(` "`)
+	// 	out.Write(title)
+	// 	out.WriteString(`"`)
+	// }
+	out.WriteString("]")
 }
 func (*markdownRenderer) LineBreak(out *bytes.Buffer) {
 	out.WriteString("  \n")
 }
-func (*markdownRenderer) Link(out *bytes.Buffer, link, title, content []byte) {
+func (mr *markdownRenderer) Link(out *bytes.Buffer, link, title, content []byte) {
 	out.WriteString("[")
 	out.Write(content)
-	out.WriteString("](")
-	out.Write(escape(link))
-	if len(title) != 0 {
-		out.WriteString(` "`)
-		out.Write(title)
-		out.WriteString(`"`)
-	}
-	out.WriteString(")")
+	out.WriteString("][")
+	ref := mr.addReference(link)
+	out.WriteString(ref)
+	// TODO(slet): are there titles in reference-style links?
+	// if len(title) != 0 {
+	// 	out.WriteString(` "`)
+	// 	out.Write(title)
+	// 	out.WriteString(`"`)
+	// }
+	out.WriteString("]")
 }
 func (*markdownRenderer) RawHtmlTag(out *bytes.Buffer, tag []byte) {
 	out.Write(tag)
@@ -321,6 +328,18 @@ func (*markdownRenderer) StrikeThrough(out *bytes.Buffer, text []byte) {
 }
 func (*markdownRenderer) FootnoteRef(out *bytes.Buffer, ref []byte, id int) {
 	out.WriteString("<FootnoteRef: Not implemented.>") // TODO
+}
+
+// references helper
+func (mr *markdownRenderer) addReference(url []byte) string {
+	key := string(url)
+	if val, ok := mr.references[key]; ok {
+		return strconv.Itoa(val)
+	}
+	ref := len(mr.references)
+	mr.references[key] = ref
+	mr.referencesSlice = append(mr.referencesSlice, url)
+	return strconv.Itoa(ref)
 }
 
 // escape replaces instances of backslash with escaped backslash in text.
@@ -390,7 +409,18 @@ func (mr *markdownRenderer) NormalText(out *bytes.Buffer, text []byte) {
 
 // Header and footer.
 func (*markdownRenderer) DocumentHeader(out *bytes.Buffer) {}
-func (*markdownRenderer) DocumentFooter(out *bytes.Buffer) {}
+func (mr *markdownRenderer) DocumentFooter(out *bytes.Buffer) {
+	if len(mr.references) > 0 {
+		out.WriteString("\n")
+	}
+	for i, url := range mr.referencesSlice {
+		out.WriteString("[")
+		out.WriteString(strconv.Itoa(i))
+		out.WriteString("]:")
+		out.Write(escape(url))
+		out.WriteString("\n")
+	}
+}
 
 func (*markdownRenderer) GetFlags() int { return 0 }
 
@@ -443,6 +473,7 @@ func NewRenderer(opt *Options) blackfriday.Renderer {
 		normalTextMarker:   make(map[*bytes.Buffer]int),
 		orderedListCounter: make(map[int]int),
 		paragraph:          make(map[int]bool),
+		references:         make(map[string]int),
 
 		stringWidth: runewidth.StringWidth,
 	}
