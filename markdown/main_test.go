@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shurcooL/markdownfmt/markdown"
+	"github.com/curusarn/markdownfmt/markdown"
 )
 
 func Example() {
